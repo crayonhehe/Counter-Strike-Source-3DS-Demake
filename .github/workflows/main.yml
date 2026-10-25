@@ -1,0 +1,299 @@
+# ============================================================================
+# Dust II 2DS — GitHub Actions build workflow
+# File location: .github/workflows/build.yml
+#
+# PROJECT / GAME DESIGN TARGET
+# This section records what the game is supposed to become. These comments are
+# a design checklist for the source code; comments in this workflow do NOT add
+# gameplay by themselves. Implement gameplay in source/main.c and other source
+# files, then use this workflow to compile/package it.
+#
+# PLATFORM AND PRESENTATION
+# - Target the original Nintendo 2DS / Old 3DS hardware.
+# - Offline, single-player first-person shooter against AI bots.
+# - Top screen: first-person view, crosshair, health, armour, ammo, money,
+#   weapon, round timer and kill/round messages.
+# - Bottom touchscreen: tactical map, teammate/enemy markers, A/B bombsites,
+#   buy menu and clear touch targets.
+# - Keep rendering and bot updates lightweight for the original 2DS.
+#
+# PLAYER AND CONTROLS
+# - Player identity: BarBeQue Marine, on the Terrorist team.
+# - Circle Pad: movement.
+# - Touchscreen drag: look around.
+# - L: aim/scope; R: fire; A: reload; Y: cycle weapon.
+# - X: open/close buy menu.
+# - START: plant when in a valid bombsite / restart after a round ends.
+# - Touch controls must not prevent physical-button movement and shooting.
+#
+# DUST II-INSPIRED LEVEL
+# - Include Terrorist and CT spawns, mid, Long A, Short/Catwalk A, B tunnels,
+#   and bombsites A and B.
+# - Include navigable paths, walls, doorways, cover, boundaries, collision,
+#   site markers and a lower-screen tactical overview.
+# - Use original/homebrew-made graphics and sounds, not ripped proprietary
+#   Counter-Strike assets.
+#
+# TEAMS AND BOT PERSONALITIES
+# - Terrorist teammates: "poo ringo", "poo shark" and "poo zach".
+# - "poo ringo" should be the strongest teammate bot.
+# - Other friendly names may follow the "poo ..." naming style.
+# - CT bots are opponents.
+# - Bots should navigate the map, acquire targets, shoot, reload, react to
+#   damage, and take part in the round objective.
+# - Terrorists should attack/plant; CTs should defend and attempt to defuse.
+# - Show team, name, health/state and useful position information on the map.
+#
+# COUNTER-STRIKE-INSPIRED ROUND AND ECONOMY
+# - Start with $800 and offer a timed buy phase at the start of each round.
+# - Buy menu checks affordability and shows money, weapon, ammo and armour.
+# - Track health, armour, ammunition, kills, deaths, round wins and rewards.
+# - Include A/B planting, bomb countdown, CT defusing and clear win conditions.
+# - Allow new rounds to begin and apply reasonable reset/reward rules.
+#
+# WEAPONS AND FEEL
+# - Include a Glock pistol, AK-47, CT rifle, armour and AWP.
+# - Weapons have individual damage, magazine/reserve ammo, fire cadence,
+#   reload time, spread/recoil, movement accuracy and purchase prices.
+# - AWP: powerful shot, bolt delay, classic-style scope and two zoom levels.
+# - L should enter/leave scope and allow the intended zoom controls.
+# - Prevent firing with an empty magazine and show reload feedback.
+#
+# FUTURE ACCEPTANCE GOALS
+# - No walking through walls or planting/defusing anywhere on the map.
+# - Bots follow walkable paths instead of moving through walls.
+# - Round, bomb, cash, weapon and HUD state stay consistent for a full match.
+# - Test the .3dsx/.cia on original 2DS hardware; compiling alone does not
+#   prove controls, performance, gameplay or installation work correctly.
+# ============================================================================
+
+name: Build Dust II 2DS
+
+on:
+  # Build whenever code is committed to either commonly used branch name.
+  push:
+    branches:
+      - main
+      - master
+
+  # Catch compilation errors before proposed changes are merged.
+  pull_request:
+    branches:
+      - main
+      - master
+
+  # Also allow a manual run from GitHub's Actions page.
+  workflow_dispatch:
+
+# Avoid two runs racing to upload artifacts for the same branch.
+concurrency:
+  group: dust2ds-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The build only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile and package for Nintendo 2DS / 3DS
+    runs-on: ubuntu-latest
+
+    # Official devkitPro development environment with devkitARM/libctru.
+    # This is a cloud build; you do not need a compiler installed on your Mac.
+    container:
+      image: devkitpro/devkitarm:latest
+
+    env:
+      TARGET: dust2ds
+      APP_TITLE: Dust II 2DS
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Explain the build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo "Branch/ref: ${GITHUB_REF}"
+          echo "Compiler:"
+          arm-none-eabi-gcc --version | head -n 1
+          echo "DEVKITPRO=${DEVKITPRO:-not-set}"
+          echo "DEVKITARM=${DEVKITARM:-not-set}"
+
+      - name: Validate required project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Makefile || {
+            echo "ERROR: Makefile is missing from the repository root."
+            exit 1
+          }
+          test -f source/main.c || {
+            echo "ERROR: source/main.c is missing."
+            exit 1
+          }
+          test -f icon.png || {
+            echo "ERROR: icon.png is missing from the repository root."
+            exit 1
+          }
+          test -f assets/banner.png || {
+            echo "ERROR: assets/banner.png is missing."
+            exit 1
+          }
+          test -f assets/banner.wav || {
+            echo "ERROR: assets/banner.wav is missing."
+            exit 1
+          }
+          echo "Required source and metadata files are present."
+
+      - name: Clean old outputs and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          make clean
+
+          # Keep parallelism modest for predictable builds in the CI container.
+          make -j2
+
+          test -s "${TARGET}.3dsx" || {
+            echo "ERROR: ${TARGET}.3dsx was not created."
+            exit 1
+          }
+          test -s "${TARGET}.elf" || {
+            echo "ERROR: ${TARGET}.elf was not created."
+            exit 1
+          }
+          test -s "${TARGET}.smdh" || {
+            echo "ERROR: ${TARGET}.smdh was not created."
+            exit 1
+          }
+          echo "3DSX, ELF and SMDH outputs were created."
+
+      - name: Prepare downloadable build folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist build/cia
+          cp "${TARGET}.3dsx" "${TARGET}.elf" "${TARGET}.smdh" dist/
+
+          cat > dist/BUILD_INFO.txt <<INFO
+          Application: ${APP_TITLE}
+          Target: Nintendo 2DS / Old 3DS homebrew
+          Commit: ${GITHUB_SHA}
+          Ref: ${GITHUB_REF}
+          Built (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')
+          Build output: .3dsx (Homebrew Launcher), .elf (debug/build), .smdh (icon metadata)
+          Note: compilation is not proof of correct gameplay or real-console compatibility.
+          INFO
+
+      - name: Check CIA packaging tools
+        id: cia_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=""
+
+          command -v bannertool >/dev/null 2>&1 || missing="${missing} bannertool"
+          command -v makerom >/dev/null 2>&1 || missing="${missing} makerom"
+
+          if [ -n "${missing}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "CIA packaging unavailable. Missing:${missing}" >> "$GITHUB_STEP_SUMMARY"
+            echo "The .3dsx build will still be uploaded. To get a .cia, this runner needs both bannertool and makerom." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::CIA not created because packaging tools are missing:${missing}"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            bannertool --help >/dev/null 2>&1 || true
+            makerom -h >/dev/null 2>&1 || true
+            echo "Both CIA packaging tools are present." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Create banner and Home Menu icon metadata
+        if: steps.cia_tools.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bannertool makebanner \
+            -i assets/banner.png \
+            -a assets/banner.wav \
+            -o build/cia/banner.bnr
+
+          bannertool makesmdh \
+            -s "Dust II 2DS" \
+            -l "Dust II-inspired homebrew FPS" \
+            -p "BarBeQue Marine" \
+            -i icon.png \
+            -o build/cia/icon.icn
+
+          test -s build/cia/banner.bnr
+          test -s build/cia/icon.icn
+
+      - name: Package installable CIA
+        id: cia_package
+        if: steps.cia_tools.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          makerom \
+            -f cia \
+            -o "dist/${TARGET}.cia" \
+            -target t \
+            -exefslogo \
+            -elf "${TARGET}.elf" \
+            -icon build/cia/icon.icn \
+            -banner build/cia/banner.bnr \
+            -desc app:4 \
+            -major 1 -minor 0 -micro 0 \
+            -DAPP_ENCRYPTED=false
+
+          test -s "dist/${TARGET}.cia" || {
+            echo "ERROR: CIA packaging did not create a file."
+            exit 1
+          }
+
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "CIA package created (still needs installation and real-device testing)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record final build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Dust II 2DS build summary"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Branch/ref: \`${GITHUB_REF}\`"
+
+            if [ -s "dist/${TARGET}.3dsx" ]; then
+              echo "- 3DSX: created"
+            else
+              echo "- 3DSX: not created"
+            fi
+
+            if [ -s "dist/${TARGET}.cia" ]; then
+              echo "- CIA: created"
+            else
+              echo "- CIA: not created in this run (check the packaging-tool step)"
+            fi
+
+            echo ""
+            echo "**Reminder:** GitHub builds the code that is in the repository. The design checklist at the top of this file does not implement missing game features."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -d dist ]; then
+            ls -lh dist || true
+          fi
+
+      - name: Upload downloadable game build
+        if: always() && hashFiles('dist/*') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: dust2ds-build-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
