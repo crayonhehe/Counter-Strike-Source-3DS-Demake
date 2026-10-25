@@ -93,8 +93,33 @@ permissions:
 
 jobs:
   build:
-    name: Compile and package for Nintendo 2DS / 3DS
+    name: Compile Nintendo 2DS game
     runs-on: ubuntu-latest
+
+    # Run inside the environment that includes the 3DS compiler.
+    container:
+      image: devkitpro/devkitarm:latest
+
+    env:
+      TARGET: dust2ds
+      APP_TITLE: Dust II 2DS
+      DEVKITPRO: /opt/devkitpro
+      DEVKITARM: /opt/devkitpro/devkitARM
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check Nintendo 3DS compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking compiler..."
+          command -v arm-none-eabi-gcc
+          arm-none-eabi-gcc --version
+          echo "Checking devkitPro..."
+          echo "$DEVKITPRO"
+          echo "$DEVKITARM"
 
     # Official devkitPro development environment with devkitARM/libctru.
     # This is a cloud build; you do not need to install a compiler on your Mac.
