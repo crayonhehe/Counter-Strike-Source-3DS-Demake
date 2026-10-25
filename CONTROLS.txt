@@ -1,0 +1,14 @@
+DUST II 2DS — GAMEPLAY PROTOTYPE V2
+Circle Pad : Move
+Touch drag : Look around
+L          : Aim (AWP displays a simple scope overlay)
+R          : Fire
+A          : Reload
+Y          : Cycle weapons
+X          : Open/close buy menu (tap a row on bottom screen)
+START      : Plant near a schematic bombsite; restart after round ends
+
+Prototype v2 adds multiple bots, basic combat, a buy menu, simple money/armour,
+bomb timer and round states. It is still pseudo-3D and is not the full game.
+GitHub Actions attempts to create a .3dsx and, if makerom/bannertool are present,
+a .cia. Check the workflow artifacts; CIA output is not guaranteed until verified.

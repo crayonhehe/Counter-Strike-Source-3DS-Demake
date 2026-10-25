@@ -1,0 +1,9 @@
+Status: gameplay prototype v2 source prepared; not locally compiled in this environment.
+
+GitHub Actions builds the 3DSX/ELF and attempts CIA packaging if makerom and bannertool
+are available. Do not assume the CIA works until the GitHub Actions run produces a
+CIA artifact and it has been installed/tested on the target 2DS.
+
+Still outstanding: proper 3D Dust II geometry and collision, robust AI/pathfinding,
+weapon-specific mechanics, complete economy/round/defuse rules, audio/assets, and
+performance/testing on original 2DS hardware.
