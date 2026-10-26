@@ -17,7 +17,6 @@
 #define BLUE  C2D_Color32(66, 133, 220, 255)
 #define YELLOW C2D_Color32(232, 210, 100, 255)
 #define SKY   C2D_Color32(109, 154, 188, 255)
-#define GRASS C2D_Color32(69, 121, 83, 255)
 
 static C2D_TextBuf textBuf;
 static C2D_Text hudText;
@@ -38,12 +37,19 @@ typedef struct {
 /* Team 0 = Terrorist ally, team 1 = Counter-Terrorist opponent. */
 static Bot bots[] = {
     {"poo ringo", -1.0f, -1.0f, 100, 1, 0},
-    {"poo shark", -2.0f, 0.6f, 100, 1, 0},
-    {"poo zach", 0.2f, -2.0f, 100, 1, 0},
-    {"CT Alpha", 0.45f, 0.1f, 100, 1, 1},
-    {"CT Bravo", 2.2f, 1.1f, 100, 1, 1},
-    {"CT Charlie", -2.2f, 1.7f, 100, 1, 1},
-    {"CT Delta", 1.1f, -2.5f, 100, 1, 1}
+    {"poo viper", -2.6f, 0.4f, 100, 1, 0},
+    {"poo savage", 0.8f, -1.4f, 100, 1, 0},
+    {"poo blaze", -0.5f, 1.8f, 100, 1, 0},
+    {"poo raven", 1.8f, -0.7f, 100, 1, 0},
+    {"poo frost", -1.8f, 2.2f, 100, 1, 0},
+    {"poo shark", 0.45f, 0.1f, 100, 1, 1},
+    {"poo zach", 2.2f, 1.1f, 100, 1, 1},
+    {"poo s1mple", -2.2f, 1.7f, 100, 1, 1},
+    {"poo device", 1.1f, -2.5f, 100, 1, 1},
+    {"poo fallouN", 2.8f, -1.2f, 100, 1, 1},
+    {"poo apex", -3.0f, -1.8f, 100, 1, 1},
+    {"poo karrigan", 3.2f, 1.6f, 100, 1, 1},
+    {"poo coldzera", -1.2f, -2.9f, 100, 1, 1}
 };
 
 #define BOT_COUNT ((int)(sizeof(bots) / sizeof(bots[0])))
@@ -80,6 +86,16 @@ static void drawText(float x, float y, float scale, u32 color, const char *s) {
     C2D_DrawText(&hudText, C2D_WithColor, x, y, 0.0f, scale, scale, color);
 }
 
+static void drawBotLabel(float x, float y, const char *name, u32 color) {
+    if (name == NULL || name[0] == '\0') {
+        return;
+    }
+
+    int width = 14 + (int)strlen(name) * 5;
+    rect(NULL, x - 8, y - 16, width, 12, C2D_Color32(12, 12, 14, 200));
+    drawText(x - 6, y - 15, 0.38f, color, name);
+}
+
 static int aliveEnemies(void) {
     int n = 0;
     for (int i = 0; i < BOT_COUNT; ++i) {
@@ -112,7 +128,7 @@ static void resetRound(void) {
         bots[i].alive = 1;
         bots[i].hp = 100;
         if (bots[i].team == 1) {
-            bots[i].x = (i - 3) * 0.9f;
+            bots[i].x = (i % 7) * 0.9f - 2.7f;
             bots[i].y = (i % 2) ? 1.3f : -1.2f;
         }
     }
@@ -170,8 +186,6 @@ static void drawBuyMenu(void) {
 
 static void drawScope(void) {
     rect(NULL, 0, 0, 400, 240, BLACK);
-    rect(NULL, 0, 0, 400, 240, C2D_Color32(14, 14, 14, 255));
-
     C2D_DrawCircleSolid(200, 120, 0.0f, 96.0f, C2D_Color32(12, 12, 12, 255));
     C2D_DrawCircleSolid(200, 120, 0.0f, 88.0f, C2D_Color32(75, 74, 72, 255));
     circleOutline(200, 120, 96.0f, 2.0f, WHITE);
@@ -225,6 +239,7 @@ static void drawWorld(void) {
             float bh = 22.0f * scale;
             rect(NULL, tx - bw / 2.0f, ty - bh / 2.0f, bw, bh, teamColor);
             C2D_DrawCircleSolid(tx, ty - bh / 2.0f - 5.0f * scale, 0.0f, 4.5f * scale, C2D_Color32(185, 145, 110, 255));
+            drawBotLabel(tx - 4.0f, ty - 18.0f, b->name, teamColor);
 
             if (aiming && b->team == 1) {
                 line(tx - 8, ty - 11, tx + 8, ty - 11, 1.2f, RED);
@@ -274,7 +289,6 @@ static void drawRadar(void) {
     rect(NULL, 0, 0, 320, 240, C2D_Color32(20, 25, 29, 255));
     drawText(12, 8, 0.68f, WHITE, "DUST II  -  TACTICAL MAP");
 
-    /* terrain blocks */
     rect(NULL, 20, 46, 100, 52, C2D_Color32(83, 78, 66, 255));
     rect(NULL, 120, 63, 70, 30, C2D_Color32(83, 78, 66, 255));
     rect(NULL, 186, 44, 108, 58, C2D_Color32(83, 78, 66, 255));
@@ -304,7 +318,9 @@ static void drawRadar(void) {
         }
         float bx = 153.0f + bots[i].x * 24.0f;
         float by = 112.0f + bots[i].y * 22.0f;
-        C2D_DrawCircleSolid(bx, by, 0.0f, 3.6f, bots[i].team == 1 ? BLUE : RED);
+        u32 color = bots[i].team == 1 ? BLUE : RED;
+        C2D_DrawCircleSolid(bx, by, 0.0f, 3.6f, color);
+        drawBotLabel(bx - 8.0f, by - 12.0f, bots[i].name, color);
     }
 
     drawText(12, 192, 0.48f, WHITE, "GREEN YOU  RED T  BLUE CT");
