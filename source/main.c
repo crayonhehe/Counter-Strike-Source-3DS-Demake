@@ -17,6 +17,7 @@
 #define BLUE  C2D_Color32(66, 133, 220, 255)
 #define YELLOW C2D_Color32(232, 210, 100, 255)
 #define SKY   C2D_Color32(109, 154, 188, 255)
+#define BOMB_CODE 7355608
 
 static C2D_TextBuf textBuf;
 static C2D_Text hudText;
@@ -25,8 +26,14 @@ static float playerX = 0.0f, playerY = 0.0f, yaw = 0.0f, pitch = 0.0f;
 static int health = 100, armour = 0, ammo = 20, reserveAmmo = 120, money = 800;
 static int aiming = 0, scoped = 0, planted = 0, reloadFrames = 0, fireCooldown = 0;
 static int weapon = 2, showBuy = 0, roundFrames = 5400, bombFrames = 0, roundState = 0, kills = 0;
-static int botThink = 0;
+static int botThink = 0, plantProgress = 0, detonateAnim = 0, codeEntered = 0;
 static const char *weaponNames[] = {"AK-47", "AWP", "GLOCK"};
+
+static float clampf(float v, float minv, float maxv) {
+    if (v < minv) return minv;
+    if (v > maxv) return maxv;
+    return v;
+}
 
 typedef struct {
     const char *name;
@@ -96,6 +103,37 @@ static void drawBotLabel(float x, float y, const char *name, u32 color) {
     drawText(x - 6, y - 15, 0.38f, color, name);
 }
 
+static void drawHands(float bob, int planting, int detonate) {
+    float baseX = 200.0f;
+    float baseY = 165.0f;
+
+    if (planting > 0 && detonate == 0) {
+        float len = 20.0f + ((float)plantProgress / 60.0f) * 10.0f;
+        line(baseX - 18.0f, baseY + 2.0f + bob, baseX - 18.0f - len, baseY + 4.0f + bob, 3.0f, C2D_Color32(184, 132, 82, 255));
+        line(baseX + 18.0f, baseY + 2.0f + bob, baseX + 18.0f + len, baseY + 4.0f + bob, 3.0f, C2D_Color32(184, 132, 82, 255));
+        C2D_DrawCircleSolid(baseX - 18.0f - len, baseY + 4.0f + bob, 0.0f, 5.0f, C2D_Color32(172, 120, 72, 255));
+        C2D_DrawCircleSolid(baseX + 18.0f + len, baseY + 4.0f + bob, 0.0f, 5.0f, C2D_Color32(172, 120, 72, 255));
+        rect(NULL, baseX - 12.0f, baseY - 5.0f + bob, 24.0f, 14.0f, C2D_Color32(146, 116, 92, 255));
+        return;
+    }
+
+    if (detonate > 0) {
+        float flash = (float)detonate / 60.0f;
+        rect(NULL, 0, 0, 400, 240, C2D_Color32(255, 176, 50, (int)(flash * 120.0f)));
+        line(baseX - 18.0f, baseY + 2.0f + bob, baseX - 52.0f, baseY - 18.0f + bob, 4.0f, C2D_Color32(210, 145, 75, 255));
+        line(baseX + 18.0f, baseY + 2.0f + bob, baseX + 52.0f, baseY - 18.0f + bob, 4.0f, C2D_Color32(210, 145, 75, 255));
+        C2D_DrawCircleSolid(baseX - 52.0f, baseY - 18.0f + bob, 0.0f, 7.0f, C2D_Color32(210, 145, 75, 255));
+        C2D_DrawCircleSolid(baseX + 52.0f, baseY - 18.0f + bob, 0.0f, 7.0f, C2D_Color32(210, 145, 75, 255));
+        return;
+    }
+
+    float swing = sinf((float)botThink * 0.55f) * 20.0f;
+    line(baseX - 18.0f, baseY + 2.0f + bob, baseX - 32.0f - swing * 0.5f, baseY - 14.0f + bob, 3.0f, C2D_Color32(200, 130, 80, 255));
+    line(baseX + 18.0f, baseY + 2.0f + bob, baseX + 32.0f + swing * 0.5f, baseY - 14.0f + bob, 3.0f, C2D_Color32(200, 130, 80, 255));
+    C2D_DrawCircleSolid(baseX - 32.0f - swing * 0.5f, baseY - 14.0f + bob, 0.0f, 4.5f, C2D_Color32(200, 130, 80, 255));
+    C2D_DrawCircleSolid(baseX + 32.0f + swing * 0.5f, baseY - 14.0f + bob, 0.0f, 4.5f, C2D_Color32(200, 130, 80, 255));
+}
+
 static int aliveEnemies(void) {
     int n = 0;
     for (int i = 0; i < BOT_COUNT; ++i) {
@@ -123,6 +161,9 @@ static void resetRound(void) {
     roundState = 0;
     showBuy = 0;
     kills = 0;
+    codeEntered = 0;
+    plantProgress = 0;
+    detonateAnim = 0;
 
     for (int i = 0; i < BOT_COUNT; ++i) {
         bots[i].alive = 1;
@@ -158,6 +199,32 @@ static void buyAt(int row) {
         armour = 100;
     }
     showBuy = 0;
+}
+
+static int nearBombSite(void) {
+    float da = fabsf(playerX - 2.2f) + fabsf(playerY - 1.8f);
+    float db = fabsf(playerX + 2.2f) + fabsf(playerY - 1.8f);
+    return da < 1.1f || db < 1.1f;
+}
+
+static void startPlantSequence(void) {
+    if (planted || roundState != 0) {
+        return;
+    }
+    if (!nearBombSite()) {
+        return;
+    }
+    planted = 1;
+    plantProgress = 0;
+    bombFrames = 1800;
+}
+
+static void triggerBombDetonation(void) {
+    if (detonateAnim > 0) {
+        return;
+    }
+    detonateAnim = 90;
+    roundState = 2;
 }
 
 static void drawBuyMenu(void) {
@@ -199,29 +266,29 @@ static void drawWorld(void) {
     rect(NULL, 0, 0, 400, 240, SKY);
     rect(NULL, 0, 132, 400, 108, SAND);
 
-    /* Ground plane */
     line(0, 240, 140, 112, 2.0f, C2D_Color32(120, 90, 60, 255));
     line(400, 240, 260, 112, 2.0f, C2D_Color32(120, 90, 60, 255));
     line(140, 112, 260, 112, 2.0f, EDGE);
 
-    /* Long forward corridor */
     rect(NULL, 0, 65, 110, 82, WALL);
     rect(NULL, 290, 58, 110, 89, WALL);
     rect(NULL, 0, 65, 110, 4, EDGE);
     rect(NULL, 290, 58, 110, 4, EDGE);
 
-    /* Mid-area room */
     rect(NULL, 150, 72, 100, 70, C2D_Color32(87, 67, 47, 255));
     rect(NULL, 162, 82, 76, 48, C2D_Color32(48, 42, 35, 255));
 
-    /* Props */
     rect(NULL, 46, 150, 52, 34, C2D_Color32(116, 78, 44, 255));
     rect(NULL, 50, 154, 44, 26, C2D_Color32(146, 100, 54, 255));
     line(50, 154, 94, 178, 2.0f, WALL);
 
-    /* Bombsite markers */
     rect(NULL, 298, 122, 24, 20, RED);
     rect(NULL, 84, 120, 24, 20, RED);
+
+    float moveBob = 0.0f;
+    if (fabsf(playerX) + fabsf(playerY) > 0.1f) {
+        moveBob = sinf((float)botThink * 0.8f) * 4.0f;
+    }
 
     for (int i = 0; i < BOT_COUNT; ++i) {
         Bot *b = &bots[i];
@@ -258,6 +325,8 @@ static void drawWorld(void) {
         drawScope();
     }
 
+    drawHands(moveBob, planted, detonateAnim);
+
     rect(NULL, 0, 210, 400, 30, C2D_Color32(6, 8, 10, 240));
     char s[96];
     snprintf(s, sizeof(s), "HP %d ARM %d %s %d/%d K:%d", health, armour, weaponNames[weapon], ammo, reserveAmmo, kills);
@@ -277,6 +346,10 @@ static void drawWorld(void) {
     } else {
         snprintf(s, sizeof(s), "ROUND %02d:%02d", roundFrames / 3600, (roundFrames / 60) % 60);
         drawText(270, 5, 0.48f, YELLOW, s);
+    }
+
+    if (codeEntered) {
+        drawText(8, 32, 0.42f, YELLOW, "BOMB CODE: 7355608");
     }
 }
 
@@ -355,14 +428,13 @@ int main(void) {
 
         float moveX = cp.dx / 156.0f;
         float moveY = cp.dy / 156.0f;
+        float moveAmount = fabsf(moveX) + fabsf(moveY);
 
         if (roundState == 0 && !showBuy) {
             playerX += moveX * 0.055f;
             playerY -= moveY * 0.055f;
-            if (playerX < -4.0f) playerX = -4.0f;
-            if (playerX > 4.0f) playerX = 4.0f;
-            if (playerY < -4.0f) playerY = -4.0f;
-            if (playerY > 4.0f) playerY = 4.0f;
+            playerX = clampf(playerX, -4.0f, 4.0f);
+            playerY = clampf(playerY, -4.0f, 4.0f);
         }
 
         if ((held & KEY_TOUCH) && !showBuy) {
@@ -371,13 +443,19 @@ int main(void) {
                 int dy = (int)touch.py - (int)prevTouch.py;
                 yaw += dx * 0.012f;
                 pitch += dy * 0.35f;
-                if (pitch < -35.0f) pitch = -35.0f;
-                if (pitch > 35.0f) pitch = 35.0f;
+                pitch = clampf(pitch, -35.0f, 35.0f);
             }
             prevTouch = touch;
             wasTouching = true;
         } else {
             wasTouching = false;
+        }
+
+        if (down & KEY_SELECT) {
+            codeEntered = 1;
+            if (nearBombSite()) {
+                startPlantSequence();
+            }
         }
 
         if (down & KEY_X) {
@@ -460,19 +538,15 @@ int main(void) {
                 roundFrames--;
             }
 
-            if (!planted && (down & KEY_START)) {
-                float da = fabsf(playerX - 2.2f) + fabsf(playerY - 1.8f);
-                float db = fabsf(playerX + 2.2f) + fabsf(playerY - 1.8f);
-                if (da < 1.1f || db < 1.1f) {
-                    planted = 1;
-                    bombFrames = 1800;
-                }
+            if (codeEntered && (down & KEY_START) && nearBombSite()) {
+                startPlantSequence();
             }
 
             if (planted && bombFrames > 0) {
                 bombFrames--;
+                plantProgress += 1;
                 if (bombFrames == 0) {
-                    roundState = 1;
+                    triggerBombDetonation();
                 }
             }
 
@@ -483,34 +557,57 @@ int main(void) {
                 roundState = 2;
             }
 
+            if (detonateAnim > 0) {
+                detonateAnim--;
+            }
+
             if (++botThink >= 45) {
                 botThink = 0;
                 for (int i = 0; i < BOT_COUNT; ++i) {
                     Bot *b = &bots[i];
-                    if (!b->alive || b->team != 1) {
+                    if (!b->alive) {
                         continue;
                     }
+
                     float dx = playerX - b->x;
                     float dy = playerY - b->y;
                     float dist = fabsf(dx) + fabsf(dy);
-                    if (dist > 1.0f) {
-                        b->x += (dx / (dist + 0.01f)) * 0.12f;
-                        b->y += (dy / (dist + 0.01f)) * 0.12f;
-                    } else {
-                        int damage = 7;
-                        if (armour > 0) {
-                            int absorbed = damage / 2;
-                            if (absorbed > armour) {
-                                absorbed = armour;
+
+                    if (b->team == 1) {
+                        if (dist > 1.0f) {
+                            b->x += (dx / (dist + 0.01f)) * 0.12f;
+                            b->y += (dy / (dist + 0.01f)) * 0.12f;
+                        } else {
+                            int damage = 7;
+                            if (armour > 0) {
+                                int absorbed = damage / 2;
+                                if (absorbed > armour) {
+                                    absorbed = armour;
+                                }
+                                armour -= absorbed;
+                                damage -= absorbed;
                             }
-                            armour -= absorbed;
-                            damage -= absorbed;
+                            health -= damage;
+                            if (health < 0) {
+                                health = 0;
+                            }
                         }
-                        health -= damage;
-                        if (health < 0) {
-                            health = 0;
+                    } else {
+                        if (planted && moveAmount > 0.15f) {
+                            float tx = 2.2f;
+                            float ty = 1.8f;
+                            float mdx = tx - b->x;
+                            float mdy = ty - b->y;
+                            float mdist = fabsf(mdx) + fabsf(mdy);
+                            if (mdist > 0.01f) {
+                                b->x += (mdx / (mdist + 0.01f)) * 0.08f;
+                                b->y += (mdy / (mdist + 0.01f)) * 0.08f;
+                            }
                         }
                     }
+
+                    b->x = clampf(b->x, -4.0f, 4.0f);
+                    b->y = clampf(b->y, -4.0f, 4.0f);
                 }
             }
         } else if (down & KEY_START) {
