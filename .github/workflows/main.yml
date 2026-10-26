@@ -109,7 +109,6 @@ jobs:
       APP_TITLE: Dust II 2DS
       DEVKITPRO: /opt/devkitpro
       DEVKITARM: /opt/devkitpro/devkitARM
-      PATH: /opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}
 
     steps:
       - name: Check out repository
@@ -119,10 +118,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
           echo "Repository: ${GITHUB_REPOSITORY}"
           echo "Commit: ${GITHUB_SHA}"
           echo "Branch/ref: ${GITHUB_REF}"
           echo "Compiler:"
+          command -v arm-none-eabi-gcc
           arm-none-eabi-gcc --version | head -n 1
           echo "DEVKITPRO=${DEVKITPRO:-not-set}"
           echo "DEVKITARM=${DEVKITARM:-not-set}"
@@ -131,6 +132,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
           test -f Makefile || {
             echo "ERROR: Makefile is missing from the repository root."
             exit 1
@@ -151,12 +153,13 @@ jobs:
             echo "ERROR: assets/banner.wav is missing."
             exit 1
           }
-          echo "Required source and metadata files are present.
+          echo "Required source and metadata files are present."
 
       - name: Clean old outputs and compile
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
           make clean
 
           # Keep parallelism modest for predictable builds in the CI container.
@@ -198,6 +201,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
           missing=""
 
           command -v bannertool >/dev/null 2>&1 || missing="${missing} bannertool"
@@ -220,6 +224,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
 
           bannertool makebanner \
             -i assets/banner.png \
@@ -242,6 +247,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
 
           makerom \
             -f cia \
