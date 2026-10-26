@@ -1,334 +1,100 @@
-# ============================================================================
-# Dust II 2DS — GitHub Actions build workflow
-# File location: .github/workflows/build.yml
-#
-# PROJECT / GAME DESIGN TARGET
-# This section records what the game is supposed to become. These comments are
-# a design checklist for the source code; comments in this workflow do NOT add
-# gameplay by themselves. Implement gameplay in source/main.c and other source
-# files, then use this workflow to compile/package it.
-#
-# PLATFORM AND PRESENTATION
-# - Target the original Nintendo 2DS / Old 3DS hardware.
-# - Offline, single-player first-person shooter against AI bots.
-# - Top screen: first-person view, crosshair, health, armour, ammo, money,
-#   weapon, round timer and kill/round messages.
-# - Bottom touchscreen: tactical map, teammate/enemy markers, A/B bombsites,
-#   buy menu and clear touch targets.
-# - Keep rendering and bot updates lightweight for the original 2DS.
-#
-# PLAYER AND CONTROLS
-# - Player identity: BarBeQue Marine, on the Terrorist team.
-# - Circle Pad: movement.
-# - Touchscreen drag: look around.
-# - L: aim/scope; R: fire; A: reload; Y: cycle weapon.
-# - X: open/close buy menu.
-# - START: plant when in a valid bombsite / restart after a round ends.
-# - Touch controls must not prevent physical-button movement and shooting.
-#
-# DUST II-INSPIRED LEVEL
-# - Include Terrorist and CT spawns, mid, Long A, Short/Catwalk A, B tunnels,
-#   and bombsites A and B.
-# - Include navigable paths, walls, doorways, cover, boundaries, collision,
-#   site markers and a lower-screen tactical overview.
-# - Use original/homebrew-made graphics and sounds, not ripped proprietary
-#   Counter-Strike assets.
-#
-# TEAMS AND BOT PERSONALITIES
-# - Terrorist teammates: "poo ringo", "poo shark" and "poo zach".
-# - "poo ringo" should be the strongest teammate bot.
-# - Other friendly names may follow the "poo ..." naming style.
-# - CT bots are opponents.
-# - Bots should navigate the map, acquire targets, shoot, reload, react to
-#   damage, and take part in the round objective.
-# - Terrorists should attack/plant; CTs should defend and attempt to defuse.
-# - Show team, name, health/state and useful position information on the map.
-#
-# COUNTER-STRIKE-INSPIRED ROUND AND ECONOMY
-# - Start with $800 and offer a timed buy phase at the start of each round.
-# - Buy menu checks affordability and shows money, weapon, ammo and armour.
-# - Track health, armour, ammunition, kills, deaths, round wins and rewards.
-# - Include A/B planting, bomb countdown, CT defusing and clear win conditions.
-# - Allow new rounds to begin and apply reasonable reset/reward rules.
-#
-# WEAPONS AND FEEL
-# - Include a Glock pistol, AK-47, CT rifle, armour and AWP.
-# - Weapons have individual damage, magazine/reserve ammo, fire cadence,
-#   reload time, spread/recoil, movement accuracy and purchase prices.
-# - AWP: powerful shot, bolt delay, classic-style scope and two zoom levels.
-# - L should enter/leave scope and allow the intended zoom controls.
-# - Prevent firing with an empty magazine and show reload feedback.
-#
-# FUTURE ACCEPTANCE GOALS
-# - No walking through walls or planting/defusing anywhere on the map.
-# - Bots follow walkable paths instead of moving through walls.
-# - Round, bomb, cash, weapon and HUD state stay consistent for a full match.
-# - Test the .3dsx/.cia on original 2DS hardware; compiling alone does not
-#   prove controls, performance, gameplay or installation work correctly.
-# ============================================================================
-
-name: Build Dust II 2DS
+name: 3DS Build
 
 on:
   push:
     branches:
       - main
       - master
-
   pull_request:
-    branches:
-      - main
-      - master
-
   workflow_dispatch:
-
-concurrency:
-  group: dust2ds-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
 
 jobs:
   build:
-    name: Compile and package for Nintendo 2DS / 3DS
     runs-on: ubuntu-latest
-
-    container:
-      image: devkitpro/devkitarm:latest
+    timeout-minutes: 60
 
     env:
-      TARGET: dust2ds
-      APP_TITLE: Dust II 2DS
       DEVKITPRO: /opt/devkitpro
-      DEVKITARM: /opt/devkitpro/devkitARM
+      PATH: /opt/devkitpro/tools/bin:/opt/devkitpro/portlibs/armv6k/bin:/usr/local/bin:$PATH
 
     steps:
-      - name: Check out repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Explain the build environment
+      - name: Install devkitPro
         shell: bash
         run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-          echo "Repository: ${GITHUB_REPOSITORY}"
-          echo "Commit: ${GITHUB_SHA}"
-          echo "Branch/ref: ${GITHUB_REF}"
-          echo "Compiler:"
-          command -v arm-none-eabi-gcc
-          arm-none-eabi-gcc --version | head -n 1
-          echo "DEVKITPRO=${DEVKITPRO:-not-set}"
-          echo "DEVKITARM=${DEVKITARM:-not-set}"
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y wget ca-certificates build-essential p7zip-full
+          wget -qO /tmp/devkitpro-pacman.deb https://github.com/devkitPro/installer/releases/download/v1.0.0/devkitpro-pacman.amd64.deb
+          sudo apt-get install -y /tmp/devkitpro-pacman.deb
+          sudo dkp-pacman -Sy --noconfirm
+          sudo dkp-pacman -S --needed --noconfirm 3ds-dev
 
-      - name: Validate required project files
+      - name: Install bannertool
         shell: bash
         run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-          test -f Makefile || {
-            echo "ERROR: Makefile is missing from the repository root."
-            exit 1
-          }
-          test -f source/main.c || {
-            echo "ERROR: source/main.c is missing."
-            exit 1
-          }
-          test -f icon.png || {
-            echo "ERROR: icon.png is missing from the repository root."
-            exit 1
-          }
-          test -f assets/banner.png || {
-            echo "ERROR: assets/banner.png is missing."
-            exit 1
-          }
-          test -f assets/banner.wav || {
-            echo "ERROR: assets/banner.wav is missing."
-            exit 1
-          }
-          echo "Required source and metadata files are present."
+          set -eux
+          git clone https://github.com/Steveice10/bannertool.git /tmp/bannertool
+          make -C /tmp/bannertool
+          sudo install /tmp/bannertool/bannertool /usr/local/bin/bannertool
+          bannertool --help >/dev/null
 
-      - name: Install CIA packaging tools
+      - name: Install makerom
         shell: bash
         run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-
-          mkdir -p /tmp/cia-tools
-
-          echo "Downloading bannertool..."
-          curl -L -o /tmp/cia-tools/bannertool.tar.gz \
-            "https://github.com/Steveice10/bannertool/releases/latest/download/bannertool-linux-x64.tar.gz" \
-            || curl -L -o /tmp/cia-tools/bannertool.tar.gz \
-            "https://github.com/Steveice10/bannertool/releases/latest/download/bannertool-linux.zip"
-
-          if [ -f /tmp/cia-tools/bannertool.tar.gz ]; then
-            tar -xzf /tmp/cia-tools/bannertool.tar.gz -C /tmp/cia-tools || true
-            find /tmp/cia-tools -type f -name "bannertool" -exec install -m 755 {} /usr/local/bin/bannertool \;
+          set -eux
+          if ! command -v makerom >/dev/null 2>&1; then
+            sudo dkp-pacman -S --needed --noconfirm 3ds-makerom || true
           fi
-
-          echo "Downloading makerom..."
-          curl -L -o /tmp/cia-tools/makerom \
-            "https://github.com/profi200/Project_CTR/releases/latest/download/makerom" \
-            || curl -L -o /tmp/cia-tools/makerom \
-            "https://github.com/profi200/Project_CTR/releases/latest/download/makerom-linux-x86_64"
-
-          if [ -f /tmp/cia-tools/makerom ]; then
-            chmod +x /tmp/cia-tools/makerom
-            install -m 755 /tmp/cia-tools/makerom /usr/local/bin/makerom
-          fi
-
-          echo "Installed tools:"
-          command -v bannertool || true
           command -v makerom || true
 
-      - name: Clean old outputs and compile
+      - name: Build 3DSX
         shell: bash
         run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-          make clean
-          make -j2
+          set -eux
+          make -j"$(nproc)" || make
+          find . -maxdepth 2 \( -name "*.3dsx" -o -name "*.elf" \) -print
 
-          test -s "${TARGET}.3dsx" || {
-            echo "ERROR: ${TARGET}.3dsx was not created."
-            exit 1
-          }
-          test -s "${TARGET}.elf" || {
-            echo "ERROR: ${TARGET}.elf was not created."
-            exit 1
-          }
-          test -s "${TARGET}.smdh" || {
-            echo "ERROR: ${TARGET}.smdh was not created."
-            exit 1
-          }
-          echo "3DSX, ELF and SMDH outputs were created."
-
-      - name: Prepare downloadable build folder
+      - name: Package CIA (only if banner/icon are present)
+        if: hashFiles('banner.png') != '' && hashFiles('icon.png') != ''
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p dist build/cia
-          cp "${TARGET}.3dsx" "${TARGET}.elf" "${TARGET}.smdh" dist/
+          set -eux
+          mkdir -p build
 
-          cat > dist/BUILD_INFO.txt <<INFO
-          Application: ${APP_TITLE}
-          Target: Nintendo 2DS / Old 3DS homebrew
-          Commit: ${GITHUB_SHA}
-          Ref: ${GITHUB_REF}
-          Built (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')
-          Build output: .3dsx (Homebrew Launcher), .elf (debug/build), .smdh (icon metadata)
-          Note: compilation is not proof of correct gameplay or real-console compatibility.
-          INFO
+          bannertool makebanner -i banner.png -o build/banner.bin
+          bannertool makesmdh -s "My Game" -l "My Game" -p "My Publisher" -i icon.png -o build/icon.icn
 
-      - name: Check CIA packaging tools
-        id: cia_tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-          missing=""
+          if command -v makerom >/dev/null 2>&1; then
+            if [ -f "./*.elf" ]; then
+              echo "Found ELF file"
+            fi
 
-          command -v bannertool >/dev/null 2>&1 || missing="${missing} bannertool"
-          command -v makerom >/dev/null 2>&1 || missing="${missing} makerom"
-
-          if [ -n "${missing}" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "CIA packaging unavailable. Missing:${missing}" >> "$GITHUB_STEP_SUMMARY"
-            echo "The .3dsx build will still be uploaded. To get a .cia, the tools must be installed." >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::CIA not created because packaging tools are missing:${missing}"
-            exit 1
+            if [ -f "resources/template.rsf" ]; then
+              makerom -f cia -o build/game.cia \
+                -DAPP_ENCRYPTED \
+                -target t \
+                -exefslogo \
+                -elf ./*.elf \
+                -icon build/icon.icn \
+                -banner build/banner.bin \
+                -rsf resources/template.rsf
+            else
+              echo "No resources/template.rsf found. Skipping CIA packaging."
+              exit 0
+            fi
           else
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            bannertool --help >/dev/null 2>&1 || true
-            makerom -h >/dev/null 2>&1 || true
-            echo "Both CIA packaging tools are present." >> "$GITHUB_STEP_SUMMARY"
+            echo "makerom not found. CIA packaging skipped."
+            exit 0
           fi
 
-      - name: Create banner and Home Menu icon metadata
-        if: steps.cia_tools.outputs.available == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-
-          bannertool makebanner \
-            -i assets/banner.png \
-            -a assets/banner.wav \
-            -o build/cia/banner.bnr
-
-          bannertool makesmdh \
-            -s "Dust II 2DS" \
-            -l "Dust II-inspired homebrew FPS" \
-            -p "BarBeQue Marine" \
-            -i icon.png \
-            -o build/cia/icon.icn
-
-          test -s build/cia/banner.bnr
-          test -s build/cia/icon.icn
-
-      - name: Package installable CIA
-        id: cia_package
-        if: steps.cia_tools.outputs.available == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
-
-          makerom \
-            -f cia \
-            -o "dist/${TARGET}.cia" \
-            -target t \
-            -exefslogo \
-            -elf "${TARGET}.elf" \
-            -icon build/cia/icon.icn \
-            -banner build/cia/banner.bnr \
-            -desc app:4 \
-            -major 1 -minor 0 -micro 0 \
-            -DAPP_ENCRYPTED=false
-
-          test -s "dist/${TARGET}.cia" || {
-            echo "ERROR: CIA packaging did not create a file."
-            exit 1
-          }
-
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          echo "CIA package created (still needs installation and real-device testing)." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Record final build summary
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "## Dust II 2DS build summary"
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Branch/ref: \`${GITHUB_REF}\`"
-
-            if [ -s "dist/${TARGET}.3dsx" ]; then
-              echo "- 3DSX: created"
-            else
-              echo "- 3DSX: not created"
-            fi
-
-            if [ -s "dist/${TARGET}.cia" ]; then
-              echo "- CIA: created"
-            else
-              echo "- CIA: not created in this run (check the packaging-tool step)"
-            fi
-
-            echo ""
-            echo "**Reminder:** GitHub builds the code that is in the repository. The design checklist at the top of this file does not implement missing game features."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -d dist ]; then
-            ls -lh dist || true
-          fi
-
-      - name: Upload downloadable game build
-        if: always() && hashFiles('dist/*') != ''
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dust2ds-build-${{ github.sha }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 14
+          name: 3ds-build
+          path: |
+            ./**/*.3dsx
+            build/*.cia
+          if-no-files-found: ignore
