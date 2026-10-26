@@ -20,12 +20,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug runner environment
-        run: |
-          echo "PATH=$PATH"
-          which tar || command -v tar || true
-          ls -l /bin/tar /usr/bin/tar /usr/local/bin/tar 2>/dev/null || true
-
       - name: Install system dependencies
         run: |
           set -eux
@@ -93,7 +87,6 @@ jobs:
         run: |
           set -eux
 
-          # Only package if required files exist
           if [ ! -f banner.png ] || [ ! -f icon.png ]; then
             echo "banner.png or icon.png missing; skipping CIA packaging."
             exit 0
