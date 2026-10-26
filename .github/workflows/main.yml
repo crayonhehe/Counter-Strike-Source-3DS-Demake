@@ -11,29 +11,48 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    env:
-      DEVKITPRO: /opt/devkitpro
-      PATH: /opt/devkitpro/tools/bin:/opt/devkitpro/portlibs/armv6k/bin:/usr/local/bin:$PATH
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install devkitPro
-        shell: bash
+      - name: Debug runner environment
+        run: |
+          echo "PATH=$PATH"
+          which tar || command -v tar || true
+          ls -l /bin/tar /usr/bin/tar /usr/local/bin/tar 2>/dev/null || true
+
+      - name: Install system dependencies
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y wget ca-certificates build-essential p7zip-full
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            git \
+            tar \
+            xz-utils \
+            p7zip-full \
+            pkg-config \
+            wget \
+            file
+
+      - name: Install devkitPro
+        run: |
+          set -eux
           wget -qO /tmp/devkitpro-pacman.deb https://github.com/devkitPro/installer/releases/download/v1.0.0/devkitpro-pacman.amd64.deb
           sudo apt-get install -y /tmp/devkitpro-pacman.deb
           sudo dkp-pacman -Sy --noconfirm
           sudo dkp-pacman -S --needed --noconfirm 3ds-dev
+          echo "/opt/devkitpro/tools/bin" >> "$GITHUB_PATH"
+          echo "/opt/devkitpro/portlibs/armv6k/bin" >> "$GITHUB_PATH"
 
       - name: Install bannertool
-        shell: bash
         run: |
           set -eux
           git clone https://github.com/Steveice10/bannertool.git /tmp/bannertool
@@ -41,39 +60,54 @@ jobs:
           sudo install /tmp/bannertool/bannertool /usr/local/bin/bannertool
           bannertool --help >/dev/null
 
-      - name: Install makerom
-        shell: bash
+      - name: Install makerom if available
         run: |
           set -eux
-          if ! command -v makerom >/dev/null 2>&1; then
+          if command -v dkp-pacman >/dev/null 2>&1; then
             sudo dkp-pacman -S --needed --noconfirm 3ds-makerom || true
           fi
           command -v makerom || true
 
-      - name: Build 3DSX
-        shell: bash
+      - name: Show repo layout
         run: |
           set -eux
-          make -j"$(nproc)" || make
-          find . -maxdepth 2 \( -name "*.3dsx" -o -name "*.elf" \) -print
+          ls -la
+          find . -maxdepth 2 -type f | sed 's#^\./##' | sort | head -200
 
-      - name: Package CIA (only if banner/icon are present)
-        if: hashFiles('banner.png') != '' && hashFiles('icon.png') != ''
-        shell: bash
+      - name: Build 3DSX
         run: |
           set -eux
+
+          if [ -f Makefile ]; then
+            make -j"$(nproc)" || make
+          else
+            echo "No Makefile found in repo root."
+            echo "If your project uses a different build system, update this step."
+            exit 1
+          fi
+
+          find . -maxdepth 3 \( -iname "*.3dsx" -o -iname "*.elf" \) -print
+
+      - name: Package CIA if possible
+        if: always()
+        run: |
+          set -eux
+
+          # Only package if required files exist
+          if [ ! -f banner.png ] || [ ! -f icon.png ]; then
+            echo "banner.png or icon.png missing; skipping CIA packaging."
+            exit 0
+          fi
+
           mkdir -p build
 
           bannertool makebanner -i banner.png -o build/banner.bin
           bannertool makesmdh -s "My Game" -l "My Game" -p "My Publisher" -i icon.png -o build/icon.icn
 
           if command -v makerom >/dev/null 2>&1; then
-            if [ -f "./*.elf" ]; then
-              echo "Found ELF file"
-            fi
-
             if [ -f "resources/template.rsf" ]; then
-              makerom -f cia -o build/game.cia \
+              makerom -f cia \
+                -o build/game.cia \
                 -DAPP_ENCRYPTED \
                 -target t \
                 -exefslogo \
@@ -82,18 +116,16 @@ jobs:
                 -banner build/banner.bin \
                 -rsf resources/template.rsf
             else
-              echo "No resources/template.rsf found. Skipping CIA packaging."
-              exit 0
+              echo "resources/template.rsf missing. CIA packaging skipped."
             fi
           else
             echo "makerom not found. CIA packaging skipped."
-            exit 0
           fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: 3ds-build
+          name: 3ds-artifacts
           path: |
             ./**/*.3dsx
             build/*.cia
