@@ -70,27 +70,22 @@
 name: Build Dust II 2DS
 
 on:
-  # Build whenever code is committed to either commonly used branch name.
   push:
     branches:
       - main
       - master
 
-  # Catch compilation errors before proposed changes are merged.
   pull_request:
     branches:
       - main
       - master
 
-  # Also allow a manual run from GitHub's Actions page.
   workflow_dispatch:
 
-# Avoid two runs racing to upload artifacts for the same branch.
 concurrency:
   group: dust2ds-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# The build only needs to read the repository.
 permissions:
   contents: read
 
@@ -99,8 +94,6 @@ jobs:
     name: Compile and package for Nintendo 2DS / 3DS
     runs-on: ubuntu-latest
 
-    # Official devkitPro development environment with devkitARM/libctru.
-    # This is a cloud build; you do not need a compiler installed on your Mac.
     container:
       image: devkitpro/devkitarm:latest
 
@@ -155,14 +148,46 @@ jobs:
           }
           echo "Required source and metadata files are present."
 
+      - name: Install CIA packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
+
+          mkdir -p /tmp/cia-tools
+
+          echo "Downloading bannertool..."
+          curl -L -o /tmp/cia-tools/bannertool.tar.gz \
+            "https://github.com/Steveice10/bannertool/releases/latest/download/bannertool-linux-x64.tar.gz" \
+            || curl -L -o /tmp/cia-tools/bannertool.tar.gz \
+            "https://github.com/Steveice10/bannertool/releases/latest/download/bannertool-linux.zip"
+
+          if [ -f /tmp/cia-tools/bannertool.tar.gz ]; then
+            tar -xzf /tmp/cia-tools/bannertool.tar.gz -C /tmp/cia-tools || true
+            find /tmp/cia-tools -type f -name "bannertool" -exec install -m 755 {} /usr/local/bin/bannertool \;
+          fi
+
+          echo "Downloading makerom..."
+          curl -L -o /tmp/cia-tools/makerom \
+            "https://github.com/profi200/Project_CTR/releases/latest/download/makerom" \
+            || curl -L -o /tmp/cia-tools/makerom \
+            "https://github.com/profi200/Project_CTR/releases/latest/download/makerom-linux-x86_64"
+
+          if [ -f /tmp/cia-tools/makerom ]; then
+            chmod +x /tmp/cia-tools/makerom
+            install -m 755 /tmp/cia-tools/makerom /usr/local/bin/makerom
+          fi
+
+          echo "Installed tools:"
+          command -v bannertool || true
+          command -v makerom || true
+
       - name: Clean old outputs and compile
         shell: bash
         run: |
           set -euo pipefail
           export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}"
           make clean
-
-          # Keep parallelism modest for predictable builds in the CI container.
           make -j2
 
           test -s "${TARGET}.3dsx" || {
@@ -210,8 +235,9 @@ jobs:
           if [ -n "${missing}" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "CIA packaging unavailable. Missing:${missing}" >> "$GITHUB_STEP_SUMMARY"
-            echo "The .3dsx build will still be uploaded. To get a .cia, this runner needs both bannertool and makerom." >> "$GITHUB_STEP_SUMMARY"
+            echo "The .3dsx build will still be uploaded. To get a .cia, the tools must be installed." >> "$GITHUB_STEP_SUMMARY"
             echo "::warning::CIA not created because packaging tools are missing:${missing}"
+            exit 1
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
             bannertool --help >/dev/null 2>&1 || true
