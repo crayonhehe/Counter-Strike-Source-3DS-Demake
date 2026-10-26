@@ -27,6 +27,7 @@ static int health = 100, armour = 0, ammo = 20, reserveAmmo = 120, money = 800;
 static int aiming = 0, scoped = 0, planted = 0, reloadFrames = 0, fireCooldown = 0;
 static int weapon = 2, showBuy = 0, roundFrames = 5400, bombFrames = 0, roundState = 0, kills = 0;
 static int botThink = 0, plantProgress = 0, detonateAnim = 0, codeEntered = 0;
+static int bombBeep = 0, bombWarning = 0;
 static const char *weaponNames[] = {"AK-47", "AWP", "GLOCK"};
 
 static float clampf(float v, float minv, float maxv) {
@@ -118,7 +119,7 @@ static void drawHands(float bob, int planting, int detonate) {
     }
 
     if (detonate > 0) {
-        float flash = (float)detonate / 60.0f;
+        float flash = (float)detonate / 90.0f;
         rect(NULL, 0, 0, 400, 240, C2D_Color32(255, 176, 50, (int)(flash * 120.0f)));
         line(baseX - 18.0f, baseY + 2.0f + bob, baseX - 52.0f, baseY - 18.0f + bob, 4.0f, C2D_Color32(210, 145, 75, 255));
         line(baseX + 18.0f, baseY + 2.0f + bob, baseX + 52.0f, baseY - 18.0f + bob, 4.0f, C2D_Color32(210, 145, 75, 255));
@@ -156,7 +157,7 @@ static void resetRound(void) {
     yaw = 0.0f;
     pitch = 0.0f;
     planted = 0;
-    bombFrames = 0;
+    bombFrames = 40 * 60;
     roundFrames = 5400;
     roundState = 0;
     showBuy = 0;
@@ -164,6 +165,8 @@ static void resetRound(void) {
     codeEntered = 0;
     plantProgress = 0;
     detonateAnim = 0;
+    bombBeep = 0;
+    bombWarning = 0;
 
     for (int i = 0; i < BOT_COUNT; ++i) {
         bots[i].alive = 1;
@@ -216,7 +219,9 @@ static void startPlantSequence(void) {
     }
     planted = 1;
     plantProgress = 0;
-    bombFrames = 1800;
+    bombFrames = 40 * 60;
+    bombBeep = 0;
+    bombWarning = 0;
 }
 
 static void triggerBombDetonation(void) {
@@ -225,6 +230,8 @@ static void triggerBombDetonation(void) {
     }
     detonateAnim = 90;
     roundState = 2;
+    bombWarning = 0;
+    bombBeep = 0;
 }
 
 static void drawBuyMenu(void) {
@@ -337,6 +344,18 @@ static void drawWorld(void) {
     rect(NULL, 0, 0, 400, 24, C2D_Color32(8, 10, 12, 225));
     drawText(8, 5, 0.52f, WHITE, "DUST II  |  BARBEQUE MARINE / T SIDE");
 
+    if (planted) {
+        int seconds = bombFrames / 60;
+        int seconds_mod = seconds % 60;
+        int minutes = seconds / 60;
+        snprintf(s, sizeof(s), "BOMB %02d:%02d", minutes, seconds_mod);
+        if (seconds <= 10) {
+            drawText(200, 28, 0.46f, RED, s);
+        } else {
+            drawText(200, 28, 0.46f, YELLOW, s);
+        }
+    }
+
     if (roundState == 1) {
         drawText(260, 5, 0.52f, GREEN, "T WIN - START");
     } else if (roundState == 2) {
@@ -350,6 +369,10 @@ static void drawWorld(void) {
 
     if (codeEntered) {
         drawText(8, 32, 0.42f, YELLOW, "BOMB CODE: 7355608");
+    }
+
+    if (bombWarning) {
+        drawText(125, 30, 0.42f, RED, "BEEP WARNING");
     }
 }
 
@@ -545,9 +568,25 @@ int main(void) {
             if (planted && bombFrames > 0) {
                 bombFrames--;
                 plantProgress += 1;
+
+                if (bombFrames < 300) {
+                    bombWarning = 1;
+                } else {
+                    bombWarning = 0;
+                }
+
+                if (bombFrames % 30 == 0) {
+                    bombBeep = 1;
+                } else if (bombFrames % 30 == 1) {
+                    bombBeep = 0;
+                }
+
                 if (bombFrames == 0) {
                     triggerBombDetonation();
                 }
+            } else {
+                bombWarning = 0;
+                bombBeep = 0;
             }
 
             if (!planted && roundFrames == 0) {
