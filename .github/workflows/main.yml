@@ -107,6 +107,9 @@ jobs:
     env:
       TARGET: dust2ds
       APP_TITLE: Dust II 2DS
+      DEVKITPRO: /opt/devkitpro
+      DEVKITARM: /opt/devkitpro/devkitARM
+      PATH: /opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:${PATH}
 
     steps:
       - name: Check out repository
@@ -148,7 +151,7 @@ jobs:
             echo "ERROR: assets/banner.wav is missing."
             exit 1
           }
-          echo "Required source and metadata files are present."
+          echo "Required source and metadata files are present.
 
       - name: Clean old outputs and compile
         shell: bash
