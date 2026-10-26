@@ -1,41 +1,28 @@
-name: 3DS Build
+name: 3DS CIA Build
 
 on:
   push:
     branches:
       - main
       - master
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-cia:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitarm:latest
 
-    defaults:
-      run:
-        shell: bash
-
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install extra system tools
+      - name: Install system tools
         run: |
           set -eux
           apt-get update
           apt-get install -y --no-install-recommends \
-            git \
-            make \
-            ca-certificates \
-            curl \
-            file \
-            p7zip-full \
-            tar \
-            xz-utils
-          git --version
+            git make ca-certificates curl file p7zip-full tar xz-utils
 
       - name: Install bannertool
         run: |
@@ -51,33 +38,23 @@ jobs:
           dkp-pacman -S --needed --noconfirm 3ds-makerom || true
           command -v makerom || true
 
-      - name: Show repo layout
+      - name: Build the project
         run: |
           set -eux
-          ls -la
-          find . -maxdepth 2 -type f | sed 's#^\./##' | sort | head -200
-
-      - name: Build 3DSX
-        run: |
-          set -eux
-
           if [ -f Makefile ]; then
             make -j"$(nproc)" || make
           else
-            echo "No Makefile found in repo root."
-            echo "This repo likely uses a custom build system or a different file layout."
+            echo "No Makefile found."
             exit 1
           fi
 
-          find . -maxdepth 3 \( -iname "*.3dsx" -o -iname "*.elf" \) -print
-
-      - name: Package CIA if possible
+      - name: Create CIA
         if: always()
         run: |
           set -eux
 
           if [ ! -f banner.png ] || [ ! -f icon.png ]; then
-            echo "banner.png or icon.png missing. Skipping CIA packaging."
+            echo "banner.png or icon.png missing. Cannot create CIA."
             exit 0
           fi
 
@@ -86,25 +63,30 @@ jobs:
           bannertool makebanner -i banner.png -o build/banner.bin
           bannertool makesmdh -s "My Game" -l "My Game" -p "My Publisher" -i icon.png -o build/icon.icn
 
-          if command -v makerom >/dev/null 2>&1 && [ -f resources/template.rsf ]; then
-            makerom -f cia \
-              -o build/game.cia \
-              -DAPP_ENCRYPTED \
-              -target t \
-              -exefslogo \
-              -elf ./*.elf \
-              -icon build/icon.icn \
-              -banner build/banner.bin \
-              -rsf resources/template.rsf
+          if command -v makerom >/dev/null 2>&1; then
+            if [ -f resources/template.rsf ] && ls ./*.elf >/dev/null 2>&1; then
+              makerom -f cia \
+                -o build/game.cia \
+                -DAPP_ENCRYPTED \
+                -target t \
+                -exefslogo \
+                -elf ./*.elf \
+                -icon build/icon.icn \
+                -banner build/banner.bin \
+                -rsf resources/template.rsf
+            else
+              echo "Required files for CIA packaging are missing."
+              exit 0
+            fi
           else
-            echo "makerom missing or resources/template.rsf missing. CIA packaging skipped."
+            echo "makerom not available."
+            exit 0
           fi
 
-      - name: Upload artifacts
+      - name: Upload CIA
         uses: actions/upload-artifact@v4
         with:
-          name: 3ds-artifacts
+          name: cia-artifact
           path: |
-            ./**/*.3dsx
             build/*.cia
           if-no-files-found: ignore
